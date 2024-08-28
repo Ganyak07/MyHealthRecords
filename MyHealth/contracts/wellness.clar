@@ -1,7 +1,7 @@
 ;; title: wellness
-;; version: 1.3
-;; summary: A smart contract for managing medical records, claims, and bills
-;; description: This contract handles medical records, insurance claims, billing, and user authorization for a wellness platform.
+;; version: 1.4
+;; summary: A smart contract for managing medical records, claims, bills, and user roles.
+;; description: This contract handles medical records, insurance claims, billing, user authorization, and role management for a wellness platform.
 
 ;; Define data variables
 (define-map medical-records 
@@ -15,6 +15,18 @@
 (define-map bills
   (string-ascii 50)
   { cost: uint, paid: bool })
+
+(define-map user-roles
+  principal
+  (string-ascii 50))
+
+(define-map insurance-policies
+  (string-ascii 50)
+  { coverage: uint, premium: uint, active: bool })
+
+(define-map payment-history
+  { service-name: (string-ascii 50), timestamp: uint }
+  { amount: uint, paid: bool })
 
 ;; Read-only functions
 
@@ -39,20 +51,33 @@
     authorized-list (is-some (index-of authorized-list user))
     false))
 
+(define-read-only (get-role (user principal))
+  (default-to "unknown" (map-get? user-roles user)))
+
+(define-read-only (is-user-in-role (user principal) (role (string-ascii 50)))
+  (is-eq (get-role user) role))
+
+(define-read-only (get-policy (policy-id (string-ascii 50)))
+  (map-get? insurance-policies policy-id))
+
 ;; Public functions
 
 (define-public (add-medical-record (patient-id uint) (record (string-ascii 1000)))
   (let ((existing-record (get-medical-record patient-id)))
     (if (is-eq (get record existing-record) "")
-        (ok (map-set medical-records 
-                     patient-id
-                     { record: record, timestamp: block-height }))
+        (begin
+          (map-set medical-records 
+                   patient-id
+                   { record: record, timestamp: block-height })
+          ;; Log event: Medical record added
+          (ok patient-id))
         (err u"Record already exists"))))
 
 (define-public (submit-claim (claim-amount uint))
   (let ((policy u1000)) ;; Example policy amount (1000 tokens)
     (if (> claim-amount u0)
         (let ((payout (calculate-payout claim-amount policy)))
+          ;; Log event: Claim submitted
           ;; Here you would typically transfer tokens or record the claim
           ;; For now, we'll just return the calculated payout
           (ok payout))
@@ -61,19 +86,25 @@
 (define-public (add-bill (service-name (string-ascii 50)) (cost uint))
   (begin
     (asserts! (is-eq (get cost (get-bill service-name)) u0) (err u"Bill already exists"))
-    (ok (map-set bills 
-                 service-name
-                 { cost: cost, paid: false }))))
+    (map-set bills 
+             service-name
+             { cost: cost, paid: false })
+    ;; Log event: Bill added
+    (ok service-name)))
 
-(define-public (pay-bill (service-name (string-ascii 50)))
+(define-public (pay-bill (service-name (string-ascii 50)) (amount uint))
   (let ((bill (get-bill service-name)))
-    (if (get paid bill)
+    (if (is-eq (get paid bill) true)
         (err u"Bill already paid")
         (begin
-          (map-set bills 
-                   service-name
+          (map-set payment-history
+                   { service-name: service-name, timestamp: block-height }
+                   { amount: amount, paid: true })
+          (map-set bills service-name
                    { cost: (get cost bill), paid: true })
+          ;; Log event: Bill paid
           (ok true)))))
+
 
 (define-public (authorize-user (user principal) (role (string-ascii 50)))
   (match (map-get? authorized-users role)
@@ -84,7 +115,22 @@
                        role
                        (unwrap! (as-max-len? (append current-users user) u150)
                                 (err u"Failed to add user")))))
-    (ok (map-set authorized-users role (list user)))))
+    (ok (map-set authorized-users role (list user))))
+  ;; Log event: User authorized
+  )
+
+(define-public (create-policy (policy-id (string-ascii 50)) (coverage uint) (premium uint))
+  (begin
+    (map-set insurance-policies policy-id { coverage: coverage, premium: premium, active: true })
+    ;; Log event: Policy created
+    (ok policy-id)))
+
+(define-public (assign-role (user principal) (role (string-ascii 50)))
+  (begin
+    (map-set user-roles user role)
+    ;; Log event: User role assigned
+    (ok role)))
+
 
 ;; Contract initialization
 (begin
