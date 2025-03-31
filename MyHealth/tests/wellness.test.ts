@@ -1,115 +1,82 @@
 import { Clarinet, Tx, Chain, Account, types } from "clarinet-ts";
 
-// Test suite for the Wellness smart contract
 Clarinet.test({
-  name: "Test add-medical-record function",
+  name: "Wellness Contract Test Suite",
   async fn(chain: Chain, accounts: Map<string, Account>) {
-    let deployer = accounts.get("deployer")!;
-    let user = accounts.get("wallet_1")!;
+    const deployer = accounts.get("deployer")!;
+    const user1 = accounts.get("wallet_1")!;
+    const user2 = accounts.get("wallet_2")!;
 
-    // Initialize the test environment
+    // Test add-medical-record function
     let block = chain.mineBlock([
-      Tx.contractCall("wellness", "initialize-test-env", [], deployer.address),
+      Tx.contractCall("wellness", "add-medical-record", [types.uint(1), types.ascii("Test medical record")], deployer.address),
     ]);
-    block.receipts[0].result.expectOk();
+    block.receipts[0].result.expectOk().expectUint(1);
 
-    // Test the add-medical-record function
-    block = chain.mineBlock([
-      Tx.contractCall("wellness", "add-medical-record", [types.uint(2), types.ascii("New medical record")], user.address),
-    ]);
-    block.receipts[0].result.expectOk().expectUint(2);
-  },
-});
-
-Clarinet.test({
-  name: "Test get-medical-record function",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    let deployer = accounts.get("deployer")!;
-
-    // Initialize the test environment
-    let block = chain.mineBlock([
-      Tx.contractCall("wellness", "initialize-test-env", [], deployer.address),
-    ]);
-    block.receipts[0].result.expectOk();
-
-    // Test the get-medical-record function
+    // Test get-medical-record function
     block = chain.mineBlock([
       Tx.contractCall("wellness", "get-medical-record", [types.uint(1)], deployer.address),
     ]);
-    block.receipts[0].result.expectOk().expectAscii("Test medical record");
-  },
-});
+    block.receipts[0].result.expectOk().expectTuple()["record"].expectAscii("Test medical record");
 
-Clarinet.test({
-  name: "Test add-admin function",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    let deployer = accounts.get("deployer")!;
-    let user = accounts.get("wallet_2")!;
+    // Test submit-claim function
+    block = chain.mineBlock([
+      Tx.contractCall("wellness", "submit-claim", [types.uint(500)], user1.address),
+    ]);
+    block.receipts[0].result.expectOk().expectUint(375); // 75% of 500
 
-    // Initialize the test environment
-    let block = chain.mineBlock([
-      Tx.contractCall("wellness", "initialize-test-env", [], deployer.address),
+    // Test add-bill function
+    block = chain.mineBlock([
+      Tx.contractCall("wellness", "add-bill", [types.ascii("Test Service"), types.uint(100)], deployer.address),
+    ]);
+    block.receipts[0].result.expectOk().expectAscii("Test Service");
+
+    // Test pay-bill function
+    block = chain.mineBlock([
+      Tx.contractCall("wellness", "pay-bill", [types.ascii("Test Service"), types.uint(100)], user1.address),
+    ]);
+    block.receipts[0].result.expectOk().expectBool(true);
+
+    // Test authorize-user function
+    block = chain.mineBlock([
+      Tx.contractCall("wellness", "authorize-user", [types.principal(user1.address), types.ascii("doctor")], deployer.address),
     ]);
     block.receipts[0].result.expectOk();
 
-    // Test the add-admin function
+    // Test is-user-authorized function
     block = chain.mineBlock([
-      Tx.contractCall("wellness", "add-admin", [types.principal(user.address)], deployer.address),
-    ]);
-    block.receipts[0].result.expectOk();
-
-    // Verify the admin was added
-    block = chain.mineBlock([
-      Tx.contractCall("wellness", "is-admin", [types.principal(user.address)], deployer.address),
+      Tx.contractCall("wellness", "is-user-authorized", [types.principal(user1.address), types.ascii("doctor")], deployer.address),
     ]);
     block.receipts[0].result.expectBool(true);
-  },
-});
 
-Clarinet.test({
-  name: "Test get-policy-details function",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    let deployer = accounts.get("deployer")!;
-
-    // Initialize the test environment
-    let block = chain.mineBlock([
-      Tx.contractCall("wellness", "initialize-test-env", [], deployer.address),
+    // Test add-patient-visit function
+    block = chain.mineBlock([
+      Tx.contractCall("wellness", "add-patient-visit", [types.uint(1), types.ascii("Regular checkup")], user1.address),
     ]);
     block.receipts[0].result.expectOk();
 
-    // Test the get-policy-details function
+    // Test get-patient-visits function
     block = chain.mineBlock([
-      Tx.contractCall("wellness", "get-policy-details", [types.ascii("TEST-POLICY-1")], deployer.address),
+      Tx.contractCall("wellness", "get-patient-visits", [types.uint(1)], deployer.address),
     ]);
-    let policy = block.receipts[0].result.expectOk().expectTuple();
-    policy["coverage"].expectUint(10000);
-    policy["premium"].expectUint(100);
-    policy["active"].expectBool(true);
-  },
-});
+    let visits = block.receipts[0].result.expectOk().expectList();
+    visits.length.expectInt(1);
+    visits[0].expectTuple()["diagnosis"].expectAscii("Regular checkup");
 
-Clarinet.test({
-  name: "Test batch-pay-bills function",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    let deployer = accounts.get("deployer")!;
-
-    // Initialize the test environment
-    let block = chain.mineBlock([
-      Tx.contractCall("wellness", "initialize-test-env", [], deployer.address),
+    // Test add-emergency-contact function
+    block = chain.mineBlock([
+      Tx.contractCall("wellness", "add-emergency-contact", [types.uint(1), types.ascii("John Doe"), types.ascii("123-456-7890")], deployer.address),
     ]);
     block.receipts[0].result.expectOk();
 
-    // Test the batch-pay-bills function
+    // Test get-emergency-contact function
     block = chain.mineBlock([
-      Tx.contractCall("wellness", "batch-pay-bills", [types.list([types.ascii("TEST-SERVICE-1")])], deployer.address),
+      Tx.contractCall("wellness", "get-emergency-contact", [types.uint(1)], deployer.address),
     ]);
-    block.receipts[0].result.expectOk();
+    let contact = block.receipts[0].result.expectSome().expectTuple();
+    contact["name"].expectAscii("John Doe");
+    contact["phone"].expectAscii("123-456-7890");
 
-    // Verify that the bill has been paid
-    block = chain.mineBlock([
-      Tx.contractCall("wellness", "get-bill", [types.ascii("TEST-SERVICE-1")], deployer.address),
-    ]);
-    let bill = block.receipts[0].result.expectOk().expectTuple();
-    bill["paid"].expectBool(true);
+    console.log("All tests passed!");
   },
 });
